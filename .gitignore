@@ -2,3 +2,4 @@ src/__pycache__
 *.swp
 *~
 .idea
+training_data/

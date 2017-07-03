@@ -7,13 +7,13 @@ from random import randint
 ## START of part that students may change
 from code_completion_baseline import Code_Completion_Baseline
 
-training_dir = "./../../programs_800/"
-query_dir = "./../../programs_200/"
+training_dir = "./training_data/programs_800/"
+query_dir = "./training_data/programs_200/"
 
-model_file = "./../../trained_model"
+model_file = "./trained_model/model.tfl"
 use_stored_model = False
 
-max_hole_size = 2
+max_hole_size = 1
 simplify_tokens = True
 ## END of part that students may change
 #########################################
