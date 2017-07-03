@@ -1,4 +1,9 @@
+from asyncio.windows_events import _BaseWaitHandleFuture
+
 import tflearn
+import tensorflow as tf
+from tensorflow.contrib import rnn
+from tensorflow.contrib.legacy_seq2seq.python.ops import seq2seq
 import numpy
 import tensorflow as tf
 from tensorflow.contrib import legacy_seq2seq as seq2seq
@@ -9,16 +14,16 @@ class Code_Completion_Baseline:
 
     def token_to_string(self, token):
         return token["type"] + "-@@-" + token["value"]
-    
+
     def string_to_token(self, string):
         splitted = string.split("-@@-")
         return {"type": splitted[0], "value": splitted[1]}
-    
+
     def one_hot(self, string):
         vector = [0] * len(self.string_to_number)
         vector[self.string_to_number[string]] = 1
         return vector
-    
+
     def prepare_data(self, token_lists):
         # encode tokens into one-hot vectors
         all_token_strings = set()
@@ -33,8 +38,11 @@ class Code_Completion_Baseline:
         all_token_strings.sort()
         print("Unique tokens: " + str(len(all_token_strings)))
         self.string_to_number = dict()
-        self.number_to_string = dict() 
+        self.number_to_string = dict()
         max_number = 0
+        all_token_strings = list(all_token_strings)
+        all_token_strings.sort()
+
         for token_string in all_token_strings:
             self.string_to_number[token_string] = max_number
             self.number_to_string[max_number] = token_string
@@ -46,18 +54,21 @@ class Code_Completion_Baseline:
         # prepare x,y pairs
         xs = []
         ys = []
+
         for token_list in token_lists:
             for idx, token in enumerate(token_list):
                 if idx > 0:
                     token_string = self.token_to_string(token)
                     previous_token_string = self.token_to_string(token_list[idx - 1])
-                    xs.append(self.one_hot(previous_token_string))
+                    xs.append(self.string_to_number[previous_token_string])
                     ys.append(self.one_hot(token_string))
 
         print("x,y pairs: " + str(len(xs)))        
         return (xs, ys)
 
     def getIOarrays(self, token_lists):
+        xs = []
+        ys = []
         for token_list in token_lists:
             for idx, token in enumerate(token_list):
                 if idx > 0:
@@ -98,6 +109,8 @@ class Code_Completion_Baseline:
         self.n_output_symbols = self.out_max_int + 2  # extra "GO" symbol for decoder inputs
         num_layers = 2
         single_cell = rnn.BasicLSTMCell(32)  #getattr(rnn_cell, cell_type)(cell_size, state_is_tuple=True)
+        self.inSeqLen = 10
+        self.outSeqLen = 10
         if num_layers == 1:
             cell = single_cell
         else:
@@ -161,14 +174,18 @@ class Code_Completion_Baseline:
     
     def load(self, token_lists, model_file):
         self.prepare_data(token_lists)
+        print(self.string_to_number)
         self.create_network()
         self.model.load(model_file)
     
     def train(self, token_lists, model_file):
         (xs, ys) = self.prepare_data(token_lists)
         self.create_network()
+        xs = xs[:len(xs)-(len(xs) % 5)]
+        xs = numpy.reshape(xs, (-1,5))
         self.model.fit(xs, ys, n_epoch=1, batch_size=1024, show_metric=True)
         self.model.save(model_file)
+        self.model.load(model_file)
         
     def query(self, prefix, suffix):
         previous_token_string = self.token_to_string(prefix[-1])

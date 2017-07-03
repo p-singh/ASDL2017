@@ -3,3 +3,5 @@ src/__pycache__
 *~
 .idea
 training_data/
+trained_model/
+virtualenv/
