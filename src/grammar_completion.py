@@ -1,23 +1,18 @@
-import tflearn
-import tensorflow as tf
-from tensorflow.contrib import rnn
-from tensorflow.contrib.legacy_seq2seq.python.ops import seq2seq
 import numpy
+import tflearn
 import tensorflow as tf
 from tensorflow.contrib import legacy_seq2seq as seq2seq
 from tensorflow.contrib import rnn
 from collections import defaultdict
 
-class Code_Completion_Baseline:
 
-    model_file = "./trained_model/model.tfl"
-
+class Grammar_Completion:
     def token_to_string(self, token):
-        return token["type"] + "-@@-" + token["value"]
+        return token["type"] # + "-@@-" + token["value"]
 
     def string_to_token(self, string):
-        splitted = string.split("-@@-")
-        return {"type": splitted[0], "value": splitted[1]}
+        splitted = string#.split("-@@-")
+        return {"type": splitted}#[0], "value": splitted[1]}
 
     def one_hot(self, string):
         vector = [0] * len(self.string_to_number)
@@ -39,21 +34,6 @@ class Code_Completion_Baseline:
         all_token_strings.add("ZERO")
         all_token_strings.add("HOLE")
         all_token_strings = list(all_token_strings)
-        w = list(all_token_strings)
-        w.sort()
-        x = list(all_token_strings)
-        x.sort()
-        y = list(all_token_strings)
-        y.sort()
-        z = list(all_token_strings)
-        z.sort()
-        print(w == x)
-        print(w == y)
-        print(w == z)
-        print(x == y)
-        print(x == z)
-        print(y == z)
-
         all_token_strings.sort()
         print("Unique tokens: " + str(len(all_token_strings)))
         self.string_to_number = dict()
@@ -67,17 +47,18 @@ class Code_Completion_Baseline:
 
         print("TOTAL TOKEN OCCURRENCES: ", all_tokens)
 
-        sorted_freq = [(k, token_frequencies[k]) for k in sorted(token_frequencies, key = token_frequencies.get, reverse=True)]
+        sorted_freq = [(k, token_frequencies[k]) for k in
+                       sorted(token_frequencies, key=token_frequencies.get, reverse=True)]
 
-        for k,v in sorted_freq:
-            print(k, " :: ", v*100/all_tokens, " -- ", v)
+        for k, v in sorted_freq:
+            print(k, " :: ", v * 100 / all_tokens, " -- ", v)
 
         # prepare x,y pairs
         xs = []
         ys = []
         self.window = 7
 
-        self.in_seq_len = self.window*2 + 1
+        self.in_seq_len = self.window * 2 + 1
         self.out_seq_len = 1
         self.in_max_int = self.out_max_int = len(self.string_to_number)
 
@@ -86,13 +67,14 @@ class Code_Completion_Baseline:
                 token_list[idx] = self.string_to_number[self.token_to_string(token)]
 
         for token_list in token_lists:
-            token_list = token_list + [self.string_to_number["UNK"]]*self.window
+            token_list = token_list + [self.string_to_number["UNK"]] * self.window
             for idx, token in enumerate(token_list):
                 if idx < len(token_list) - self.in_seq_len:
-                    xs.append(token_list[idx:idx+self.window]+[self.string_to_number["HOLE"]] + token_list[idx+self.window+1:idx+self.window+self.window+1])
-                    ys.append([token_list[idx+self.window]])
+                    xs.append(token_list[idx:idx + self.window] + [self.string_to_number["HOLE"]] + token_list[
+                                                                                                    idx + self.window + 1:idx + self.window + self.window + 1])
+                    ys.append([token_list[idx + self.window]])
 
-        print("x,y pairs: " + str(len(xs)))        
+        print("x,y pairs: " + str(len(xs)))
         return (xs, ys)
 
     def getIOarrays(self, token_lists):
@@ -109,17 +91,16 @@ class Code_Completion_Baseline:
                     xs.append(self.one_hot(previous_token_string))
                     ys.append(self.one_hot(token_string))
 
-
     def create_network(self):
         self.seq2seq_model = "embedding_attention"
         mode = "train"
         GO_VALUE = self.out_max_int + 1
 
-        self.net = tflearn.input_data(shape=[None, self.in_seq_len ], dtype=tf.int32, name="XY")
+        self.net = tflearn.input_data(shape=[None, self.in_seq_len], dtype=tf.int32, name="XY")
         encoder_inputs = tf.slice(self.net, [0, 0], [-1, self.in_seq_len], name="enc_in")  # get encoder inputs
-        encoder_inputs = tf.unstack(encoder_inputs, axis=1)  #transform to list of self.in_seq_len elements, each [-1]
+        encoder_inputs = tf.unstack(encoder_inputs, axis=1)  # transform to list of self.in_seq_len elements, each [-1]
 
-        decoder_inputs = tf.slice(self.net, [0, 0], [-1, self.out_seq_len],name="dec_in")
+        decoder_inputs = tf.slice(self.net, [0, 0], [-1, self.out_seq_len], name="dec_in")
         decoder_inputs = tf.unstack(decoder_inputs, axis=1)  # transform into list of self.out_seq_len elements
 
         go_input = tf.multiply(tf.ones_like(decoder_inputs[0], dtype=tf.int32), GO_VALUE)
@@ -131,7 +112,9 @@ class Code_Completion_Baseline:
         self.n_input_symbols = self.in_max_int + 1  # default is integers from 0 to 9
         self.n_output_symbols = self.out_max_int + 2  # extra "GO" symbol for decoder inputs
 
-        cell = rnn.MultiRNNCell([rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128)])
+        cell = rnn.MultiRNNCell(
+            [rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128),
+                rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128)])
 
         if self.seq2seq_model == "embedding_rnn":
             model_outputs, states = seq2seq.embedding_rnn_seq2seq(encoder_inputs,
@@ -159,19 +142,18 @@ class Code_Completion_Baseline:
         tf.add_to_collection(tf.GraphKeys.LAYER_VARIABLES + '/' + "seq2seq_model",
                              model_outputs)  # for TFLearn to know what to save and restore
         self.net = tf.stack(model_outputs,
-                           axis=1)  # shape [-1, n_decoder_inputs (= self.out_seq_len), num_decoder_symbols]
-
+                            axis=1)  # shape [-1, n_decoder_inputs (= self.out_seq_len), num_decoder_symbols]
 
         with tf.name_scope("TargetsData"):  # placeholder for target variable (i.e. trainY input)
             targetY = tf.placeholder(shape=[None, self.out_seq_len], dtype=tf.int32, name="Y")
 
         self.net = tflearn.regression(self.net,
-                                     placeholder=targetY,
-                                     optimizer='adam',
-                                     learning_rate=0.00005,
-                                     loss=self.sequence_loss,
-                                     metric=self.accuracy,
-                                     name="Y")
+                                      placeholder=targetY,
+                                      optimizer='adam',
+                                      learning_rate=0.0001,
+                                      loss=self.sequence_loss,
+                                      metric=self.accuracy,
+                                      name="Y")
 
         self.model = tflearn.DNN(self.net)
 
@@ -189,12 +171,13 @@ class Code_Completion_Baseline:
         '''
         logits = tf.unstack(y_pred, axis=1)  # list of [-1, num_decoder_synbols] elements
         targets = tf.unstack(y_true,
-                            axis=1)  # y_true has shape [-1, self.out_seq_len]; unpack to list of self.out_seq_len [-1] elements
+                             axis=1)  # y_true has shape [-1, self.out_seq_len]; unpack to list of self.out_seq_len [-1] elements
         weights = [tf.ones_like(yp, dtype=tf.float32) for yp in targets]
         sl = seq2seq.sequence_loss(logits, targets, weights)
         return sl
 
-    def accuracy(self, y_pred, y_true, x):  # y_pred is [-1, self.out_seq_len, num_decoder_symbols]; y_true is [-1, self.out_seq_len]
+    def accuracy(self, y_pred, y_true,
+                 x):  # y_pred is [-1, self.out_seq_len, num_decoder_symbols]; y_true is [-1, self.out_seq_len]
         '''
         Compute accuracy of the prediction, based on the true labels.  Use the average number of equal
         values.
@@ -208,15 +191,15 @@ class Code_Completion_Baseline:
         print(self.string_to_number)
         self.create_network()
         self.model.load(model_file)
-    
+
     def train(self, token_lists, model_file):
         (xs, ys) = self.prepare_data(token_lists)
         self.create_network()
-        self.model.load(model_file)
-        self.model.fit(xs, ys, n_epoch=1, batch_size=4096, shuffle=True, show_metric=False)
+        # self.model.load(model_file)
+        self.model.fit(xs, ys, n_epoch=10, batch_size=512, shuffle=True, show_metric=False)
         self.model.save(model_file)
         self.model.load(model_file)
-        
+
     def query(self, prefix, suffix):
         x = self.prepare_query_inputs(prefix, suffix)
         result = []
@@ -235,9 +218,10 @@ class Code_Completion_Baseline:
         x1 = prefix[-self.window:]
         x2 = suffix[:self.window]
         for t in x1:
-           x.append(self.string_to_number[self.token_to_string(t)])
+            x.append(self.string_to_number[self.token_to_string(t)])
         x.append(self.string_to_number["HOLE"])
         for t in x2:
             x.append(self.string_to_number[self.token_to_string(t)])
-        x = [self.string_to_number["UNK"]]*(self.window-len(x1)) + x + [self.string_to_number["UNK"]]*(self.window-len(x2))
+        x = [self.string_to_number["UNK"]] * (self.window - len(x1)) + x + [self.string_to_number["UNK"]] * (
+        self.window - len(x2))
         return x

@@ -3,18 +3,21 @@ from os.path import join, isfile
 import json
 from random import randint
 
+
 #########################################
 ## START of part that students may change
 from code_completion_baseline import Code_Completion_Baseline
+from grammar_completion import Grammar_Completion
+from random_hole_completion import Random_Hole_Completion
 
 
 training_dir = "./training_data/programs_800/"
 query_dir = "./training_data/programs_200/"
 
-model_file = "./trained_model/model.tfl"
+model_file = "./trained_model/randomholemodel.tfl"
 use_stored_model = False
 
-max_hole_size = 1
+max_hole_size = 3
 simplify_tokens = True
 ## END of part that students may change
 #########################################
@@ -60,7 +63,7 @@ def same_tokens(tokens1, tokens2):
 
 #########################################
 ## START of part that students may change
-code_completion = Code_Completion_Baseline()
+code_completion = Random_Hole_Completion()
 ## END of part that students may change
 #########################################
 
@@ -79,8 +82,10 @@ for tokens in query_token_lists:
     completion = code_completion.query(prefix, suffix)
     if same_tokens(completion, expected):
         correct += 1
+        print("CORRECT:", completion, expected)
     else:
         incorrect += 1
+        print("INCORRECT:", completion, expected)
 accuracy = correct / (correct + incorrect)
 print("Accuracy: " + str(correct) + " correct vs. " + str(incorrect) + " incorrect = "  + str(accuracy))
 
