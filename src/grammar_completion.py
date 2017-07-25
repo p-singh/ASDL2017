@@ -1,26 +1,25 @@
-import numpy
-import tflearn
-import tensorflow as tf
-from tensorflow.contrib import legacy_seq2seq as seq2seq
-from tensorflow.contrib import rnn
 from collections import defaultdict
+
+import numpy
+import tensorflow as tf
+import io
+import os
+
+from models import Models
 
 
 class Grammar_Completion:
     def token_to_string(self, token):
-        return token["type"] # + "-@@-" + token["value"]
+        return token["type"] + "-@@-" + token["value"]
 
     def string_to_token(self, string):
-        splitted = string#.split("-@@-")
-        return {"type": splitted}#[0], "value": splitted[1]}
-
-    def one_hot(self, string):
-        vector = [0] * len(self.string_to_number)
-        vector[self.string_to_number[string]] = 1
-        return vector
+        if string == "<MARK>" or string == "<>" or string == "zend":
+            return {"type": "", "value": ""}
+        else:
+            splitted = string.split("-@@-")
+            return {"type": splitted[0], "value": splitted[1]}
 
     def prepare_data(self, token_lists):
-        # encode tokens into one-hot vectors
         all_token_strings = set()
         token_frequencies = defaultdict(int)
         all_tokens = 0
@@ -30,12 +29,11 @@ class Grammar_Completion:
                 token_frequencies[self.token_to_string(token)] += 1
                 all_token_strings.add(self.token_to_string(token))
 
-        all_token_strings.add("UNK")
-        all_token_strings.add("ZERO")
-        all_token_strings.add("HOLE")
+        all_token_strings.add("zend")
+        all_token_strings.add("<>")
+        all_token_strings.add("<MARK>")
         all_token_strings = list(all_token_strings)
         all_token_strings.sort()
-        print("Unique tokens: " + str(len(all_token_strings)))
         self.string_to_number = dict()
         self.number_to_string = dict()
         max_number = 0
@@ -45,173 +43,128 @@ class Grammar_Completion:
             self.number_to_string[max_number] = token_string
             max_number += 1
 
-        print("TOTAL TOKEN OCCURRENCES: ", all_tokens)
+        self.window = 30
+        self.in_seq_len = self.window * 2 + 1
+        self.out_seq_len = 6
+        self.in_max_int = self.out_max_int = len(self.string_to_number)
 
-        sorted_freq = [(k, token_frequencies[k]) for k in
-                       sorted(token_frequencies, key=token_frequencies.get, reverse=True)]
-
-        for k, v in sorted_freq:
-            print(k, " :: ", v * 100 / all_tokens, " -- ", v)
-
+    def getTrainData(self, token_lists):
         # prepare x,y pairs
         xs = []
         ys = []
-        self.window = 7
-
-        self.in_seq_len = self.window * 2 + 1
-        self.out_seq_len = 1
-        self.in_max_int = self.out_max_int = len(self.string_to_number)
-
         for token_list in token_lists:
             for idx, token in enumerate(token_list):
                 token_list[idx] = self.string_to_number[self.token_to_string(token)]
 
+        z = [self.string_to_number["<>"]]
+        w = self.window
+
         for token_list in token_lists:
-            token_list = token_list + [self.string_to_number["UNK"]] * self.window
+            token_list = z * w + token_list + z * w
             for idx, token in enumerate(token_list):
                 if idx < len(token_list) - self.in_seq_len:
-                    xs.append(token_list[idx:idx + self.window] + [self.string_to_number["HOLE"]] + token_list[
-                                                                                                    idx + self.window + 1:idx + self.window + self.window + 1])
-                    ys.append([token_list[idx + self.window]])
+                    xs.append(self.get_x_with_hole(token_list, idx, 1))
+                    ys.append(self.get_y_with_hole(token_list, idx, 1))
+                if idx < len(token_list) - self.in_seq_len - 1:
+                    xs.append(self.get_x_with_hole(token_list, idx, 2))
+                    ys.append(self.get_y_with_hole(token_list, idx, 2))
+                if idx < len(token_list) - self.in_seq_len - 2:
+                    xs.append(self.get_x_with_hole(token_list, idx, 3))
+                    ys.append(self.get_y_with_hole(token_list, idx, 3))
+                if idx < len(token_list) - self.in_seq_len - 3:
+                    xs.append(self.get_x_with_hole(token_list, idx, 4))
+                    ys.append(self.get_y_with_hole(token_list, idx, 4))
+                if idx < len(token_list) - self.in_seq_len - 4:
+                    xs.append(self.get_x_with_hole(token_list, idx, 5))
+                    ys.append(self.get_y_with_hole(token_list, idx, 5))
 
-        print("x,y pairs: " + str(len(xs)))
-        return (xs, ys)
+        print("prefix x,y pairs: ", str(len(xs)), str(len(ys)))
 
-    def getIOarrays(self, token_lists):
-        self.in_seq_len = 5
-        self.out_seq_len = 5
-        self.in_max_int = self.out_max_int = len(self.string_to_number)
-        xs = []
-        ys = []
-        for token_list in token_lists:
-            for idx, token in enumerate(token_list):
-                if idx > 0:
-                    token_string = self.token_to_string(token)
-                    previous_token_string = self.token_to_string(token_list[idx - 1])
-                    xs.append(self.one_hot(previous_token_string))
-                    ys.append(self.one_hot(token_string))
+        # xs = xs[2048000:5120000]
+        # ys = ys[2048000:5120000]
 
-    def create_network(self):
-        self.seq2seq_model = "embedding_attention"
-        mode = "train"
-        GO_VALUE = self.out_max_int + 1
+        # xs = xs[4096000:]
+        # ys = ys[4096000:]
+        # xs = numpy.array(xs)
+        # ys = numpy.array(ys)
 
-        self.net = tflearn.input_data(shape=[None, self.in_seq_len], dtype=tf.int32, name="XY")
-        encoder_inputs = tf.slice(self.net, [0, 0], [-1, self.in_seq_len], name="enc_in")  # get encoder inputs
-        encoder_inputs = tf.unstack(encoder_inputs, axis=1)  # transform to list of self.in_seq_len elements, each [-1]
+        # print(numpy.shape(xs), numpy.shape(ys))
 
-        decoder_inputs = tf.slice(self.net, [0, 0], [-1, self.out_seq_len], name="dec_in")
-        decoder_inputs = tf.unstack(decoder_inputs, axis=1)  # transform into list of self.out_seq_len elements
+        self.write_parallel_text(xs, ys, "./network_inputs/dev/")
 
-        go_input = tf.multiply(tf.ones_like(decoder_inputs[0], dtype=tf.int32), GO_VALUE)
-        decoder_inputs = [go_input] + decoder_inputs[
-                                      : self.out_seq_len - 1]  # insert GO as first; drop last decoder input
+        return xs, ys
 
-        feed_previous = not (mode == "train")
+    def get_x_with_hole(self, ip, idx, hole_size):
+        m = [self.string_to_number["<MARK>"]]
+        w = self.window
 
-        self.n_input_symbols = self.in_max_int + 1  # default is integers from 0 to 9
-        self.n_output_symbols = self.out_max_int + 2  # extra "GO" symbol for decoder inputs
+        return ip[idx:idx + w] + m + ip[idx + w + hole_size:idx + w + w + hole_size]
 
-        cell = rnn.MultiRNNCell(
-            [rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128),
-                rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128), rnn.GRUCell(128)])
-
-        if self.seq2seq_model == "embedding_rnn":
-            model_outputs, states = seq2seq.embedding_rnn_seq2seq(encoder_inputs,
-                                                                  # encoder_inputs: A list of 2D Tensors [batch_size, input_size].
-                                                                  decoder_inputs,
-                                                                  cell,
-                                                                  num_encoder_symbols=self.n_input_symbols,
-                                                                  num_decoder_symbols=self.n_output_symbols,
-                                                                  embedding_size=200,
-                                                                  feed_previous=feed_previous)
-        elif self.seq2seq_model == "embedding_attention":
-            model_outputs, states = seq2seq.embedding_attention_seq2seq(encoder_inputs,
-                                                                        # encoder_inputs: A list of 2D Tensors [batch_size, input_size].
-                                                                        decoder_inputs,
-                                                                        cell,
-                                                                        num_encoder_symbols=self.n_input_symbols,
-                                                                        num_decoder_symbols=self.n_output_symbols,
-                                                                        embedding_size=200,
-                                                                        num_heads=1,
-                                                                        initial_state_attention=False,
-                                                                        feed_previous=feed_previous)
-        else:
-            raise Exception('[TFLearnSeq2Seq] Unknown seq2seq model %s' % self.seq2seq_model)
-
-        tf.add_to_collection(tf.GraphKeys.LAYER_VARIABLES + '/' + "seq2seq_model",
-                             model_outputs)  # for TFLearn to know what to save and restore
-        self.net = tf.stack(model_outputs,
-                            axis=1)  # shape [-1, n_decoder_inputs (= self.out_seq_len), num_decoder_symbols]
-
-        with tf.name_scope("TargetsData"):  # placeholder for target variable (i.e. trainY input)
-            targetY = tf.placeholder(shape=[None, self.out_seq_len], dtype=tf.int32, name="Y")
-
-        self.net = tflearn.regression(self.net,
-                                      placeholder=targetY,
-                                      optimizer='adam',
-                                      learning_rate=0.0001,
-                                      loss=self.sequence_loss,
-                                      metric=self.accuracy,
-                                      name="Y")
-
-        self.model = tflearn.DNN(self.net)
-
-        # self.net = tflearn.input_data(shape=[None, len(self.string_to_number)])
-        # self.net = tflearn.embedding(self.net, input_dim=100, output_dim=200)
-        # self.net = tflearn.simple_rnn(self.net, 32)
-        # self.net = tflearn.fully_connected(self.net, len(self.string_to_number), activation='softmax')
-        # self.net = tflearn.regression(self.net)
-        # self.model = tflearn.DNN(self.net)
-
-    def sequence_loss(self, y_pred, y_true):
-        '''
-        Loss function for the seq2seq RNN.  Reshape predicted and true (label) tensors, generate dummy weights,
-        then use seq2seq.sequence_loss to actually compute the loss function.
-        '''
-        logits = tf.unstack(y_pred, axis=1)  # list of [-1, num_decoder_synbols] elements
-        targets = tf.unstack(y_true,
-                             axis=1)  # y_true has shape [-1, self.out_seq_len]; unpack to list of self.out_seq_len [-1] elements
-        weights = [tf.ones_like(yp, dtype=tf.float32) for yp in targets]
-        sl = seq2seq.sequence_loss(logits, targets, weights)
-        return sl
-
-    def accuracy(self, y_pred, y_true,
-                 x):  # y_pred is [-1, self.out_seq_len, num_decoder_symbols]; y_true is [-1, self.out_seq_len]
-        '''
-        Compute accuracy of the prediction, based on the true labels.  Use the average number of equal
-        values.
-        '''
-        pred_idx = tf.to_int32(tf.argmax(y_pred, 2))  # [-1, self.out_seq_len]
-        accuracy = tf.reduce_mean(tf.cast(tf.equal(pred_idx, y_true), tf.float32), name='acc')
-        return accuracy
+    def get_y_with_hole(self, ip, idx, hole_size):
+        e = [self.string_to_number["zend"]]
+        z= [self.string_to_number["<>"]]
+        w = self.window
+        return ip[idx + w:idx + w + hole_size] + e + (z * (self.out_seq_len-hole_size -1))
 
     def load(self, token_lists, model_file):
+        self.model_file = "./trained_model/random4/randomhole.tfl"
         self.prepare_data(token_lists)
-        print(self.string_to_number)
-        self.create_network()
-        self.model.load(model_file)
+        xs, ys = self.getTrainData(token_lists)
+
+        # with tf.Graph().as_default():
+        #     self.model = Models().create_network(self.in_max_int,
+        #                                          self.out_max_int,
+        #                                          model_name="bidirectional_attention_rnn",
+        #                                          in_seq_len=self.in_seq_len, out_seq_len=self.out_seq_len,
+        #                                          num_layers=2, memory_size=32,
+        #                                          embedding_size=128, num_heads=4, scope="randomhole")
+        #
+        #     self.model.load(self.model_file)
 
     def train(self, token_lists, model_file):
-        (xs, ys) = self.prepare_data(token_lists)
-        self.create_network()
-        # self.model.load(model_file)
-        self.model.fit(xs, ys, n_epoch=10, batch_size=512, shuffle=True, show_metric=False)
-        self.model.save(model_file)
-        self.model.load(model_file)
+        self.model_file = "./trained_model/random4/randomhole.tfl"
+        self.prepare_data(token_lists)
 
-    def query(self, prefix, suffix):
+        xs, ys = self.getTrainData(token_lists)
+        # xs = xs[:40960]
+        # ys = ys[:40960]
+
+        with tf.Graph().as_default():
+            self.model = Models().create_network(self.in_max_int, self.out_max_int,
+                                                 model_name="bidirectional_attention_rnn",
+                                                 in_seq_len=self.in_seq_len, out_seq_len=self.out_seq_len,
+                                                 num_layers=2, memory_size=32,
+                                                 embedding_size=128, num_heads=4, scope="randomhole")
+            self.model.load(self.model_file)
+            self.model.fit(xs, ys, n_epoch=1, batch_size=512, shuffle=True, show_metric=False,
+                           run_id="Random Hole Completion")
+            self.model.save(self.model_file)
+
+    def query(self, prefix, suffix, expected):
         x = self.prepare_query_inputs(prefix, suffix)
         result = []
         y = self.model.predict([x])
-        predicted_seq = y[0][0]
-        if type(predicted_seq) is numpy.ndarray:
-            predicted_seq = predicted_seq.tolist()
-        best_number = predicted_seq.index(max(predicted_seq))
-        best_string = self.number_to_string[best_number]
-        best_token = self.string_to_token(best_string)
-        result.append(best_token)
-        return result
+        expected = [self.string_to_number[self.token_to_string(t)] for t in expected]
+        predicted_seq = y[0]
+        for t in predicted_seq:
+            if type(t) is numpy.ndarray:
+                t = t.tolist()
+            best_number = t.index(max(t))
+            result.append(best_number)
+        final = []
+        # if self.string_to_number["zend"] in result:
+        #     result = result[:result.index(self.string_to_number["zend"])]
+        # else:
+        #     print("Cannot find zend")
+        #     result = result[:4]
+        result = result[:3]
+
+        for best_number in result:
+            best_string = self.number_to_string[best_number]
+            best_token = self.string_to_token(best_string)
+            final.append(best_token)
+
+        return final
 
     def prepare_query_inputs(self, prefix, suffix):
         x = []
@@ -219,9 +172,34 @@ class Grammar_Completion:
         x2 = suffix[:self.window]
         for t in x1:
             x.append(self.string_to_number[self.token_to_string(t)])
-        x.append(self.string_to_number["HOLE"])
+        x.append(self.string_to_number["<MARK>"])
         for t in x2:
             x.append(self.string_to_number[self.token_to_string(t)])
-        x = [self.string_to_number["UNK"]] * (self.window - len(x1)) + x + [self.string_to_number["UNK"]] * (
-        self.window - len(x2))
+        x = [self.string_to_number["<>"]] * (self.window - len(x1)) + x + [self.string_to_number["<>"]] * (
+            self.window - len(x2))
         return x
+
+    def write_parallel_text(self, sources, targets, output_prefix):
+        """
+        Writes two files where each line corresponds to one example
+          - [output_prefix].sources.txt
+          - [output_prefix].targets.txt
+         Args:
+          sources: Iterator of source strings
+          targets: Iterator of target strings
+          output_prefix: Prefix for the output file
+        """
+        try:
+            os.makedirs(output_prefix)
+        except OSError:
+            if not os.path.isdir(output_prefix):
+                raise
+        source_filename = os.path.abspath(os.path.join(output_prefix, "sources.txt"))
+        target_filename = os.path.abspath(os.path.join(output_prefix, "targets.txt"))
+        with io.open(source_filename, "w", encoding='utf8') as source_file:
+            for record in sources:
+                source_file.write(" ".join(str(x) for x in record) + "\n")
+        print("Wrote {}".format(source_filename))
+        with io.open(target_filename, "w", encoding='utf8') as target_file:
+            for record in targets:
+                target_file.write(" ".join(str(x) for x in record) + "\n")
