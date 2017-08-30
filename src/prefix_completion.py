@@ -137,6 +137,7 @@ class Prefix_completion:
             self.suffix_model.fit(sxs, sys, n_epoch=1, batch_size=512, shuffle=True, show_metric=False, run_id="Suffix Completion")
             self.suffix_model.save(self.suffix_model_file)
 
+    # Pass expeted result to this method, just ofr top 3 accuracy calculations
     def query(self, prefix, suffix, expected):
         sx = []
         x1 = suffix[:self.window]

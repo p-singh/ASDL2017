@@ -8,7 +8,7 @@ import os
 from models import Models
 
 
-class Grammar_Completion:
+class Random3_Code_Completion:
     def token_to_string(self, token):
         return token["type"] + "-@@-" + token["value"]
 
@@ -45,7 +45,7 @@ class Grammar_Completion:
 
         self.window = 30
         self.in_seq_len = self.window * 2 + 1
-        self.out_seq_len = 6
+        self.out_seq_len = 4
         self.in_max_int = self.out_max_int = len(self.string_to_number)
 
     def getTrainData(self, token_lists):
@@ -71,26 +71,25 @@ class Grammar_Completion:
                 if idx < len(token_list) - self.in_seq_len - 2:
                     xs.append(self.get_x_with_hole(token_list, idx, 3))
                     ys.append(self.get_y_with_hole(token_list, idx, 3))
-                if idx < len(token_list) - self.in_seq_len - 3:
-                    xs.append(self.get_x_with_hole(token_list, idx, 4))
-                    ys.append(self.get_y_with_hole(token_list, idx, 4))
-                if idx < len(token_list) - self.in_seq_len - 4:
-                    xs.append(self.get_x_with_hole(token_list, idx, 5))
-                    ys.append(self.get_y_with_hole(token_list, idx, 5))
+                # Uncomment code for more hole sizes
+                # if idx < len(token_list) - self.in_seq_len - 3:
+                #     xs.append(self.get_x_with_hole(token_list, idx, 4))
+                #     ys.append(self.get_y_with_hole(token_list, idx, 4))
+                # if idx < len(token_list) - self.in_seq_len - 4:
+                #     xs.append(self.get_x_with_hole(token_list, idx, 5))
+                #     ys.append(self.get_y_with_hole(token_list, idx, 5))
 
         print("prefix x,y pairs: ", str(len(xs)), str(len(ys)))
 
-        # xs = xs[2048000:5120000]
-        # ys = ys[2048000:5120000]
-
+        # reduce size for memory issues
+        # xs = xs[:1536000]
+        # ys = ys[:1536000]
         # xs = xs[4096000:]
         # ys = ys[4096000:]
-        # xs = numpy.array(xs)
-        # ys = numpy.array(ys)
+        xs = numpy.array(xs)
+        ys = numpy.array(ys)
 
-        # print(numpy.shape(xs), numpy.shape(ys))
-
-        self.write_parallel_text(xs, ys, "./network_inputs/dev/")
+        print(numpy.shape(xs), numpy.shape(ys))
 
         return xs, ys
 
@@ -107,44 +106,39 @@ class Grammar_Completion:
         return ip[idx + w:idx + w + hole_size] + e + (z * (self.out_seq_len-hole_size -1))
 
     def load(self, token_lists, model_file):
-        self.model_file = "./trained_model/random4/randomhole.tfl"
+        self.model_file = "./trained_model/random3/randomhole.tfl"
         self.prepare_data(token_lists)
-        xs, ys = self.getTrainData(token_lists)
 
-        # with tf.Graph().as_default():
-        #     self.model = Models().create_network(self.in_max_int,
-        #                                          self.out_max_int,
-        #                                          model_name="bidirectional_attention_rnn",
-        #                                          in_seq_len=self.in_seq_len, out_seq_len=self.out_seq_len,
-        #                                          num_layers=2, memory_size=32,
-        #                                          embedding_size=128, num_heads=4, scope="randomhole")
-        #
-        #     self.model.load(self.model_file)
+        with tf.Graph().as_default():
+            self.model = Models().create_network(self.in_max_int,
+                                                 self.out_max_int,
+                                                 model_name="bidirectional_attention_rnn",
+                                                 in_seq_len=self.in_seq_len, out_seq_len=self.out_seq_len,
+                                                 num_layers=2, memory_size=64,
+                                                 embedding_size=128, num_heads=6, scope="randomhole")
+            self.model.load(self.model_file)
 
     def train(self, token_lists, model_file):
-        self.model_file = "./trained_model/random4/randomhole.tfl"
+        self.model_file = "./trained_model/random3/randomhole.tfl"
         self.prepare_data(token_lists)
 
         xs, ys = self.getTrainData(token_lists)
-        # xs = xs[:40960]
-        # ys = ys[:40960]
 
         with tf.Graph().as_default():
             self.model = Models().create_network(self.in_max_int, self.out_max_int,
                                                  model_name="bidirectional_attention_rnn",
                                                  in_seq_len=self.in_seq_len, out_seq_len=self.out_seq_len,
-                                                 num_layers=2, memory_size=32,
-                                                 embedding_size=128, num_heads=4, scope="randomhole")
+                                                 num_layers=2, memory_size=64,
+                                                 embedding_size=128, num_heads=6, scope="randomhole")
             self.model.load(self.model_file)
-            self.model.fit(xs, ys, n_epoch=1, batch_size=512, shuffle=True, show_metric=False,
+            self.model.fit(xs, ys, n_epoch=1, batch_size=256, shuffle=True, show_metric=False,
                            run_id="Random Hole Completion")
             self.model.save(self.model_file)
 
-    def query(self, prefix, suffix, expected):
+    def query(self, prefix, suffix):
         x = self.prepare_query_inputs(prefix, suffix)
         result = []
         y = self.model.predict([x])
-        expected = [self.string_to_number[self.token_to_string(t)] for t in expected]
         predicted_seq = y[0]
         for t in predicted_seq:
             if type(t) is numpy.ndarray:
@@ -152,12 +146,12 @@ class Grammar_Completion:
             best_number = t.index(max(t))
             result.append(best_number)
         final = []
-        # if self.string_to_number["zend"] in result:
-        #     result = result[:result.index(self.string_to_number["zend"])]
-        # else:
-        #     print("Cannot find zend")
-        #     result = result[:4]
-        result = result[:3]
+        if self.string_to_number["zend"] in result:
+            result = result[:result.index(self.string_to_number["zend"])]
+        else:
+            print("Cannot find zend")
+            result = result[:3]
+        # result = result[:3]
 
         for best_number in result:
             best_string = self.number_to_string[best_number]
@@ -178,28 +172,3 @@ class Grammar_Completion:
         x = [self.string_to_number["<>"]] * (self.window - len(x1)) + x + [self.string_to_number["<>"]] * (
             self.window - len(x2))
         return x
-
-    def write_parallel_text(self, sources, targets, output_prefix):
-        """
-        Writes two files where each line corresponds to one example
-          - [output_prefix].sources.txt
-          - [output_prefix].targets.txt
-         Args:
-          sources: Iterator of source strings
-          targets: Iterator of target strings
-          output_prefix: Prefix for the output file
-        """
-        try:
-            os.makedirs(output_prefix)
-        except OSError:
-            if not os.path.isdir(output_prefix):
-                raise
-        source_filename = os.path.abspath(os.path.join(output_prefix, "sources.txt"))
-        target_filename = os.path.abspath(os.path.join(output_prefix, "targets.txt"))
-        with io.open(source_filename, "w", encoding='utf8') as source_file:
-            for record in sources:
-                source_file.write(" ".join(str(x) for x in record) + "\n")
-        print("Wrote {}".format(source_filename))
-        with io.open(target_filename, "w", encoding='utf8') as target_file:
-            for record in targets:
-                target_file.write(" ".join(str(x) for x in record) + "\n")

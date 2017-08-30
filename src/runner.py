@@ -7,12 +7,13 @@ from random import randint
 #########################################
 ## START of part that students may change
 from code_completion_baseline import Code_Completion_Baseline
-from grammar_completion import Grammar_Completion
-from random_hole_completion import Random_Hole_Completion
+from random3 import Random3_Code_Completion
+from random4 import Random4_Code_Completion
+from prefix_completion import Prefix_completion
 
 
 training_dir = "./training_data/programs_800/"
-query_dir = "./training_data/programs_200/"
+query_dir = "./training_data/programs_800/"
 
 model_file = "./trained_model/randomholemodel.tfl"
 use_stored_model = False
@@ -44,7 +45,8 @@ def load_tokens(token_dir):
 
 # removes up to max_hole_size tokens
 def create_hole(tokens):
-    hole_size = randint(1, max_hole_size)
+    hole_size = min(randint(1, max_hole_size), len(tokens) - 1)
+    # hole_size = min(3, len(tokens) - 1)
     hole_start_idx = randint(1, len(tokens) - hole_size)
     prefix = tokens[0:hole_start_idx]
     expected = tokens[hole_start_idx:hole_start_idx + hole_size]
@@ -63,7 +65,7 @@ def same_tokens(tokens1, tokens2):
 
 #########################################
 ## START of part that students may change
-code_completion = Random_Hole_Completion()
+code_completion = Random4_Code_Completion()
 ## END of part that students may change
 #########################################
 

@@ -76,7 +76,7 @@ class Models:
 
         net = tflearn.regression(net, placeholder=targetY,
                                       optimizer='adam',
-                                      learning_rate=0.01,
+                                      learning_rate=0.00005,
                                       loss=self.sequence_loss,
                                       metric=self.accuracy,
                                       name=scope+"Y")
@@ -137,6 +137,8 @@ class Models:
                           encoder_outputs]
 
             attention_states = array_ops.concat(top_states, 1)
+
+            # Concatenate states of both enocders
             encoder_state = encoder_state1 + encoder_state2
 
             # Decoder.
